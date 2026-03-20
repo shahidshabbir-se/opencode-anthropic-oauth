@@ -36,6 +36,27 @@ Then add to your `opencode.json`:
 - OpenCode stores the tokens and handles refresh automatically
 - Sets the required API headers on Anthropic requests
 
+## Environment variable overrides
+
+All OAuth parameters can be overridden via environment variables. If Anthropic changes something before we publish an update, set an env var and keep working:
+
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_CLIENT_ID` | OAuth client ID |
+| `ANTHROPIC_CLI_VERSION` | Claude CLI version for User-Agent |
+| `ANTHROPIC_USER_AGENT` | Full User-Agent string (overrides version) |
+| `ANTHROPIC_AUTHORIZE_URL` | OAuth authorization endpoint |
+| `ANTHROPIC_TOKEN_URL` | OAuth token endpoint |
+| `ANTHROPIC_REDIRECT_URI` | OAuth redirect URI |
+| `ANTHROPIC_SCOPES` | OAuth scopes |
+| `ANTHROPIC_BETA_FLAGS` | Anthropic beta feature flags |
+
+Example:
+
+```bash
+export ANTHROPIC_CLI_VERSION=2.2.0
+```
+
 ## Disclaimer
 
 This plugin uses Anthropic's public OAuth client ID to authenticate. Anthropic's Terms of Service (February 2026) state that Claude Pro/Max subscription tokens should only be used with official Anthropic clients. This plugin exists as a community workaround and may stop working if Anthropic changes their OAuth infrastructure. Use at your own discretion.

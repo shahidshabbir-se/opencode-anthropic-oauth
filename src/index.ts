@@ -2,7 +2,8 @@ import type { Plugin } from "@opencode-ai/plugin"
 import {
   createAuthorizationRequest,
   exchangeCodeForTokens,
-  API_USER_AGENT,
+  USER_AGENT,
+  BETA_FLAGS,
 } from "./oauth.js"
 
 const plugin: Plugin = async () => {
@@ -48,9 +49,8 @@ const plugin: Plugin = async () => {
     "chat.headers": async (input, output) => {
       if (input.provider?.info?.id !== "anthropic") return
 
-      output.headers["user-agent"] = API_USER_AGENT
-      output.headers["anthropic-beta"] =
-        "interleaved-thinking-2025-04-14,fine-grained-tool-streaming-2025-05-14,oauth-2025-04-20"
+      output.headers["user-agent"] = USER_AGENT
+      output.headers["anthropic-beta"] = BETA_FLAGS
       output.headers["x-app"] = "cli"
     },
   }

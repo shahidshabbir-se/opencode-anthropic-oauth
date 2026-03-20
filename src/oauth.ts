@@ -1,14 +1,29 @@
 import { randomBytes, createHash } from "node:crypto"
 
-const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-const AUTHORIZE_URL = "https://claude.ai/oauth/authorize"
-const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
-const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
-const SCOPES = "org:create_api_key user:profile user:inference"
+// Defaults — updated via npm publish. Override with env vars if needed.
+const CLIENT_ID =
+  process.env.ANTHROPIC_CLIENT_ID || "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+const AUTHORIZE_URL =
+  process.env.ANTHROPIC_AUTHORIZE_URL || "https://claude.ai/oauth/authorize"
+const TOKEN_URL =
+  process.env.ANTHROPIC_TOKEN_URL ||
+  "https://console.anthropic.com/v1/oauth/token"
+const REDIRECT_URI =
+  process.env.ANTHROPIC_REDIRECT_URI ||
+  "https://console.anthropic.com/oauth/code/callback"
+const SCOPES =
+  process.env.ANTHROPIC_SCOPES ||
+  "org:create_api_key user:profile user:inference"
 
-const CLI_VERSION = "2.1.80"
-const CLI_USER_AGENT = `claude-cli/${CLI_VERSION} (external, cli)`
-const API_USER_AGENT = CLI_USER_AGENT
+const CLI_VERSION = process.env.ANTHROPIC_CLI_VERSION || "2.1.80"
+const USER_AGENT =
+  process.env.ANTHROPIC_USER_AGENT ||
+  `claude-cli/${CLI_VERSION} (external, cli)`
+const BETA_FLAGS =
+  process.env.ANTHROPIC_BETA_FLAGS ||
+  "interleaved-thinking-2025-04-14,fine-grained-tool-streaming-2025-05-14,oauth-2025-04-20"
+
+export { USER_AGENT, BETA_FLAGS }
 
 async function fetchWithRetry(
   url: string,
@@ -70,7 +85,6 @@ export function createAuthorizationRequest(): {
 }
 
 export function parseAuthCode(raw: string): string {
-  // The callback page may return "code#state" — strip the state suffix
   const hashIdx = raw.indexOf("#")
   return hashIdx >= 0 ? raw.slice(0, hashIdx) : raw
 }
@@ -94,7 +108,7 @@ export async function exchangeCodeForTokens(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": CLI_USER_AGENT,
+      "User-Agent": USER_AGENT,
     },
     body: body.toString(),
   })
@@ -132,7 +146,7 @@ export async function refreshTokens(
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      "User-Agent": CLI_USER_AGENT,
+      "User-Agent": USER_AGENT,
     },
     body: body.toString(),
   })
@@ -156,5 +170,3 @@ export async function refreshTokens(
     expires: Date.now() + data.expires_in * 1000,
   }
 }
-
-export { API_USER_AGENT, CLI_VERSION }
