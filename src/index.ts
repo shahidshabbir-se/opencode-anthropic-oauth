@@ -9,6 +9,7 @@ const plugin: Plugin = async () => {
   return {
     auth: {
       provider: "anthropic",
+      loader: async () => ({}),
       methods: [
         {
           type: "oauth" as const,
