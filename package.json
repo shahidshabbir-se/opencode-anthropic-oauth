@@ -1,0 +1,31 @@
+{
+  "name": "opencode-anthropic-oauth",
+  "version": "0.1.0",
+  "description": "OpenCode plugin for Anthropic Claude Pro/Max OAuth login — no Claude Code needed.",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": "*"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "latest",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "opencode",
+    "anthropic",
+    "claude",
+    "oauth",
+    "plugin",
+    "auth"
+  ],
+  "license": "MIT"
+}
