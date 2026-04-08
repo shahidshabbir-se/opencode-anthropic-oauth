@@ -1,4 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
+import { readFileSync, existsSync } from "node:fs"
+import { homedir } from "node:os"
+import { join } from "node:path"
 import {
   createAuthorizationRequest,
   exchangeCodeForTokens,
@@ -7,7 +10,22 @@ import {
   BETA_FLAGS,
 } from "./oauth.js"
 
-const TOOL_PREFIX = "mcp_"
+// Claude Code 2.x canonical tool names (from pi-mono/cchistory)
+const CC_TOOLS = [
+  "Read", "Write", "Edit", "Bash", "Grep", "Glob",
+  "AskUserQuestion", "EnterPlanMode", "ExitPlanMode",
+  "KillShell", "NotebookEdit", "Skill", "Task",
+  "TaskOutput", "TodoWrite", "WebFetch", "WebSearch",
+]
+const ccLookup = new Map(CC_TOOLS.map((t) => [t.toLowerCase(), t]))
+const toCC = (name: string) => ccLookup.get(name.toLowerCase()) ?? name
+const fromCC = (name: string) => {
+  // Reverse: if name matches a CC canonical name, return lowercase
+  if (ccLookup.has(name.toLowerCase()) && name !== name.toLowerCase()) {
+    return name.toLowerCase()
+  }
+  return name
+}
 
 function transformBody(body: BodyInit | null | undefined): BodyInit | null | undefined {
   if (typeof body !== "string") return body
@@ -16,12 +34,14 @@ function transformBody(body: BodyInit | null | undefined): BodyInit | null | und
       tools?: Array<{ name?: string } & Record<string, unknown>>
       messages?: Array<{ content?: Array<Record<string, unknown>> }>
     }
+    // Rename tools to CC canonical casing
     if (Array.isArray(parsed.tools)) {
       parsed.tools = parsed.tools.map((tool) => ({
         ...tool,
-        name: tool.name ? `${TOOL_PREFIX}${tool.name}` : tool.name,
+        name: tool.name ? toCC(tool.name) : tool.name,
       }))
     }
+    // Rename tool_use blocks in messages
     if (Array.isArray(parsed.messages)) {
       parsed.messages = parsed.messages.map((message) => {
         if (!Array.isArray(message.content)) return message
@@ -29,7 +49,7 @@ function transformBody(body: BodyInit | null | undefined): BodyInit | null | und
           ...message,
           content: message.content.map((block) => {
             if (block.type !== "tool_use" || typeof block.name !== "string") return block
-            return { ...block, name: `${TOOL_PREFIX}${block.name}` }
+            return { ...block, name: toCC(block.name as string) }
           }),
         }
       })
@@ -40,12 +60,21 @@ function transformBody(body: BodyInit | null | undefined): BodyInit | null | und
   }
 }
 
-function stripToolPrefix(text: string): string {
-  return text.replace(/"name"\s*:\s*"mcp_([^"]+)"/g, '"name": "$1"')
+function stripCCNames(text: string): string {
+  // Reverse CC canonical names back to original in response stream
+  for (const ccName of CC_TOOLS) {
+    const re = new RegExp(`"name"\\s*:\\s*"${ccName}"`, "g")
+    text = text.replace(re, `"name": "${ccName.toLowerCase()}"`)
+  }
+  return text
 }
 
 function transformResponseStream(response: Response): Response {
   if (!response.body) return response
+
+  // Don't transform error responses
+  if (!response.ok) return response
+
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
@@ -57,13 +86,13 @@ function transformResponseStream(response: Response): Response {
         if (boundary !== -1) {
           const completeEvent = buffer.slice(0, boundary + 2)
           buffer = buffer.slice(boundary + 2)
-          controller.enqueue(encoder.encode(stripToolPrefix(completeEvent)))
+          controller.enqueue(encoder.encode(stripCCNames(completeEvent)))
           return
         }
         const { done, value } = await reader.read()
         if (done) {
           if (buffer) {
-            controller.enqueue(encoder.encode(stripToolPrefix(buffer)))
+            controller.enqueue(encoder.encode(stripCCNames(buffer)))
             buffer = ""
           }
           controller.close()
@@ -80,21 +109,92 @@ function transformResponseStream(response: Response): Response {
   })
 }
 
-const REFRESH_INTERVAL = 5 * 60 * 1000 // check every 5 minutes
-const REFRESH_BUFFER = 10 * 60 * 1000 // refresh 10 min before expiry
+// --- Claude CLI credential reader ---
+interface CliCredentials {
+  accessToken: string
+  refreshToken: string
+  expiresAt: number
+}
+
+const OAUTH_TOKEN_URL = "https://claude.ai/v1/oauth/token"
+const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+function readCliCredentials(): CliCredentials | null {
+  try {
+    const credPath = join(homedir(), ".claude", ".credentials.json")
+    if (!existsSync(credPath)) return null
+    const raw = readFileSync(credPath, "utf-8")
+    const parsed = JSON.parse(raw)
+    const data = parsed.claudeAiOauth ?? parsed
+    if (
+      typeof data.accessToken === "string" &&
+      typeof data.refreshToken === "string" &&
+      typeof data.expiresAt === "number"
+    ) {
+      return data as CliCredentials
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function refreshCliToken(refreshToken: string): Promise<CliCredentials | null> {
+  try {
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: OAUTH_CLIENT_ID,
+      refresh_token: refreshToken,
+    })
+    const res = await fetch(OAUTH_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      access_token?: string
+      refresh_token?: string
+      expires_in?: number
+    }
+    if (!data.access_token) return null
+    return {
+      accessToken: data.access_token,
+      refreshToken: data.refresh_token ?? refreshToken,
+      expiresAt: Date.now() + (data.expires_in ?? 36000) * 1000,
+    }
+  } catch {
+    return null
+  }
+}
+
+let cachedCliCreds: CliCredentials | null = null
+
+async function getCliAccessToken(): Promise<string | null> {
+  if (cachedCliCreds && cachedCliCreds.expiresAt > Date.now() + 60_000) {
+    return cachedCliCreds.accessToken
+  }
+  const fileCreds = readCliCredentials()
+  if (!fileCreds) return null
+  if (fileCreds.expiresAt > Date.now() + 60_000) {
+    cachedCliCreds = fileCreds
+    return fileCreds.accessToken
+  }
+  const fresh = await refreshCliToken(fileCreds.refreshToken)
+  if (fresh) {
+    cachedCliCreds = fresh
+    return fresh.accessToken
+  }
+  return null
+}
+
+// --- Constants ---
+const REFRESH_INTERVAL = 5 * 60 * 1000
+const REFRESH_BUFFER = 10 * 60 * 1000
 const SYSTEM_IDENTITY =
   "You are Claude Code, Anthropic's official CLI for Claude."
-const DEFAULT_CC_VERSION = "2.1.80"
 
-function getCliVersion(): string {
-  return process.env.ANTHROPIC_CLI_VERSION ?? DEFAULT_CC_VERSION
-}
-
-function getBillingHeader(modelId: string): string {
-  return `cc_version=${getCliVersion()}.${modelId}; cc_entrypoint=cli; cch=00000;`
-}
-
-const MAX_RETRY_DELAY_S = 20 // cap retry-after to avoid 400s+ waits
+const MAX_RETRY_DELAY_S = 20
 
 async function fetchWithRetry(
   input: RequestInfo | URL,
@@ -117,8 +217,8 @@ async function fetchWithRetry(
   return fetch(input, init)
 }
 
+// --- Plugin ---
 const plugin: Plugin = async ({ client }) => {
-  // Shared ref to getAuth — set when loader runs, used by background timer
   let _getAuth: (() => Promise<any>) | null = null
 
   async function proactiveRefresh() {
@@ -127,7 +227,6 @@ const plugin: Plugin = async ({ client }) => {
       const auth = await _getAuth()
       if (!auth || auth.type !== "oauth" || !auth.refresh) return
       if (auth.expires > Date.now() + REFRESH_BUFFER) return
-
       const fresh = await refreshTokens(auth.refresh)
       await client.auth.set({
         path: { id: "anthropic" },
@@ -139,11 +238,10 @@ const plugin: Plugin = async ({ client }) => {
         },
       })
     } catch {
-      // Non-fatal — will retry next interval
+      // Non-fatal
     }
   }
 
-  // Start background refresh timer
   setInterval(() => proactiveRefresh(), REFRESH_INTERVAL)
 
   return {
@@ -153,10 +251,7 @@ const plugin: Plugin = async ({ client }) => {
         const auth = await getAuth()
         if ((auth as any).type !== "oauth") return {}
 
-        // Share getAuth with background timer
         _getAuth = getAuth
-
-        // Kick off first proactive refresh
         proactiveRefresh()
 
         // Zero out cost for Pro/Max subscription
@@ -174,30 +269,34 @@ const plugin: Plugin = async ({ client }) => {
             const auth = (await getAuth()) as any
             if (auth.type !== "oauth") return fetch(input, init)
 
-            let access = auth.access as string
+            // Prefer Claude CLI credentials (first-party, Max plan)
+            let access = await getCliAccessToken()
 
-            // Fallback: refresh inline if token somehow expired between timer runs
-            if (!access || auth.expires < Date.now()) {
-              try {
-                const fresh = await refreshTokens(auth.refresh)
-                await client.auth.set({
-                  path: { id: "anthropic" },
-                  body: {
-                    type: "oauth",
-                    refresh: fresh.refresh,
-                    access: fresh.access,
-                    expires: fresh.expires,
-                  },
-                })
-                access = fresh.access
-              } catch (err) {
-                throw new Error(
-                  `Token refresh failed: ${err instanceof Error ? err.message : err}`,
-                )
+            // Fallback to plugin's own OAuth tokens
+            if (!access) {
+              access = auth.access as string
+              if (!access || auth.expires < Date.now()) {
+                try {
+                  const fresh = await refreshTokens(auth.refresh)
+                  await client.auth.set({
+                    path: { id: "anthropic" },
+                    body: {
+                      type: "oauth",
+                      refresh: fresh.refresh,
+                      access: fresh.access,
+                      expires: fresh.expires,
+                    },
+                  })
+                  access = fresh.access
+                } catch (err) {
+                  throw new Error(
+                    `Token refresh failed: ${err instanceof Error ? err.message : err}`,
+                  )
+                }
               }
             }
 
-            // Build headers
+            // Build headers (pi-mono style: minimal, no billing header)
             const headers = new Headers()
             if (input instanceof Request) {
               input.headers.forEach((v, k) => { headers.set(k, v) })
@@ -225,57 +324,27 @@ const plugin: Plugin = async ({ client }) => {
             const required = BETA_FLAGS.split(",").map((b) => b.trim())
             const merged = [...new Set([...required, ...incoming])].join(",")
 
-            // Extract model ID for billing header
-            let modelId = "unknown"
-            if (typeof init?.body === "string") {
-              try {
-                modelId = (JSON.parse(init.body) as { model?: string }).model ?? "unknown"
-              } catch {}
-            }
-
             headers.set("authorization", `Bearer ${access}`)
             headers.set("anthropic-beta", merged)
             headers.set("anthropic-dangerous-direct-browser-access", "true")
             headers.set("user-agent", USER_AGENT)
             headers.set("x-app", "cli")
-            headers.set("x-anthropic-billing-header", getBillingHeader(modelId))
             headers.delete("x-api-key")
+            // No x-anthropic-billing-header (pi-mono doesn't send it)
 
-            // Add ?beta=true to messages endpoint (required for OAuth)
-            let url =
-              input instanceof Request ? input.url : input.toString()
-            if (url.includes("/v1/messages") && !url.includes("beta=true")) {
-              const sep = url.includes("?") ? "&" : "?"
-              url = `${url}${sep}beta=true`
-            }
+            const url = input instanceof Request ? input.url : input.toString()
+            // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: inject system identity + prefix tool names with mcp_
+            // Transform body: replace system prompt with Claude Code identity
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
 
-                // Inject system identity prefix (required by claude-code beta)
-                if (typeof parsed.system === "string") {
-                  if (!parsed.system.includes(SYSTEM_IDENTITY)) {
-                    parsed.system = [
-                      { type: "text", text: SYSTEM_IDENTITY },
-                      { type: "text", text: parsed.system },
-                    ]
-                  }
-                } else if (Array.isArray(parsed.system)) {
-                  const hasIdentity = parsed.system.some(
-                    (s: any) =>
-                      typeof s === "string"
-                        ? s.includes(SYSTEM_IDENTITY)
-                        : s?.text?.includes(SYSTEM_IDENTITY),
-                  )
-                  if (!hasIdentity) {
-                    parsed.system.unshift({ type: "text", text: SYSTEM_IDENTITY })
-                  }
-                } else if (!parsed.system) {
-                  parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
-                }
+                // Replace system entirely — Anthropic routes non-CC system prompts
+                // to "extra usage" billing instead of Max plan (April 2026 change).
+                // Keep only the Claude Code identity as system[0].
+                parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
 
                 body = JSON.stringify(parsed)
               } catch {
@@ -283,8 +352,10 @@ const plugin: Plugin = async ({ client }) => {
               }
             }
 
-            // Prefix tool names with mcp_ (required for proper routing)
+            // Rename tools to CC canonical casing (pi-mono approach)
             body = transformBody(body) ?? body
+
+            // (debug logging removed)
 
             const response = await fetchWithRetry(url, {
               method: init?.method ?? "POST",
@@ -292,6 +363,8 @@ const plugin: Plugin = async ({ client }) => {
               body,
               signal: init?.signal,
             })
+
+            // (debug logging removed)
 
             return transformResponseStream(response)
           },
