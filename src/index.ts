@@ -217,6 +217,24 @@ async function fetchWithRetry(
   return fetch(input, init)
 }
 
+// --- System prompt scrubbing (strips OpenCode references that trigger extra usage billing) ---
+const OPENCODE_PATTERNS = [
+  /opencode/i,
+  /anomalyco/i,
+  /open\s*code/i,
+]
+
+function containsOpencode(text: string): boolean {
+  return OPENCODE_PATTERNS.some((p) => p.test(text))
+}
+
+function scrubText(text: string): string {
+  return text
+    .replace(/https?:\/\/[^\s]*(?:opencode|anomalyco)[^\s]*/gi, "")
+    .replace(/\bOpenCode\b/g, "Claude Code")
+    .replace(/\bopencode\b/gi, "")
+}
+
 // --- Plugin ---
 const plugin: Plugin = async ({ client }) => {
   let _getAuth: (() => Promise<any>) | null = null
@@ -245,6 +263,33 @@ const plugin: Plugin = async ({ client }) => {
   setInterval(() => proactiveRefresh(), REFRESH_INTERVAL)
 
   return {
+    "experimental.chat.system.transform": async (input: any, output: any) => {
+      if (input.model?.providerID !== "anthropic") return
+
+      // Remove system entries that contain opencode references
+      for (let i = output.system.length - 1; i >= 0; i--) {
+        if (containsOpencode(output.system[i])) {
+          output.system[i] = scrubText(output.system[i])
+        }
+      }
+
+      // Ensure Claude Code identity is present
+      const hasIdentity = output.system.some(
+        (s: string) => s.includes(SYSTEM_IDENTITY),
+      )
+      if (!hasIdentity) {
+        output.system.unshift(SYSTEM_IDENTITY)
+      }
+    },
+    "experimental.chat.messages.transform": async (_input: any, output: any) => {
+      for (const msg of output.messages) {
+        for (const part of msg.parts) {
+          if (part.type === "text" && containsOpencode(part.text)) {
+            part.text = scrubText(part.text)
+          }
+        }
+      }
+    },
     auth: {
       provider: "anthropic",
       async loader(getAuth, provider) {
@@ -335,16 +380,34 @@ const plugin: Plugin = async ({ client }) => {
             const url = input instanceof Request ? input.url : input.toString()
             // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: replace system prompt with Claude Code identity
+            // Transform body: ensure system identity + scrub remaining opencode refs
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
 
-                // Replace system entirely — Anthropic routes non-CC system prompts
-                // to "extra usage" billing instead of Max plan (April 2026 change).
-                // Keep only the Claude Code identity as system[0].
-                parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
+                // Ensure system is an array
+                if (typeof parsed.system === "string") {
+                  parsed.system = [{ type: "text", text: parsed.system }]
+                } else if (!Array.isArray(parsed.system)) {
+                  parsed.system = []
+                }
+
+                // Scrub opencode references from system entries
+                for (let i = 0; i < parsed.system.length; i++) {
+                  const entry = parsed.system[i]
+                  if (entry.type === "text" && typeof entry.text === "string" && containsOpencode(entry.text)) {
+                    parsed.system[i] = { ...entry, text: scrubText(entry.text) }
+                  }
+                }
+
+                // Ensure Claude Code identity exists
+                const hasIdentity = parsed.system.some(
+                  (s: any) => typeof s.text === "string" && s.text.includes(SYSTEM_IDENTITY),
+                )
+                if (!hasIdentity) {
+                  parsed.system.unshift({ type: "text", text: SYSTEM_IDENTITY })
+                }
 
                 body = JSON.stringify(parsed)
               } catch {

@@ -1,6 +1,6 @@
 {
   "name": "opencode-anthropic-oauth",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "OpenCode plugin for Anthropic Claude Pro/Max OAuth login — no Claude Code needed.",
   "main": "dist/index.js",
   "module": "dist/index.js",
