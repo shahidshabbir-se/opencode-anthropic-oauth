@@ -380,35 +380,14 @@ const plugin: Plugin = async ({ client }) => {
             const url = input instanceof Request ? input.url : input.toString()
             // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: ensure system identity + scrub remaining opencode refs
+            // Transform body: replace system prompt with Claude Code identity only.
+            // Anthropic fingerprints the system prompt content (not just keywords)
+            // and routes non-Claude-Code prompts to extra usage billing.
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
-
-                // Ensure system is an array
-                if (typeof parsed.system === "string") {
-                  parsed.system = [{ type: "text", text: parsed.system }]
-                } else if (!Array.isArray(parsed.system)) {
-                  parsed.system = []
-                }
-
-                // Scrub opencode references from system entries
-                for (let i = 0; i < parsed.system.length; i++) {
-                  const entry = parsed.system[i]
-                  if (entry.type === "text" && typeof entry.text === "string" && containsOpencode(entry.text)) {
-                    parsed.system[i] = { ...entry, text: scrubText(entry.text) }
-                  }
-                }
-
-                // Ensure Claude Code identity exists
-                const hasIdentity = parsed.system.some(
-                  (s: any) => typeof s.text === "string" && s.text.includes(SYSTEM_IDENTITY),
-                )
-                if (!hasIdentity) {
-                  parsed.system.unshift({ type: "text", text: SYSTEM_IDENTITY })
-                }
-
+                parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
                 body = JSON.stringify(parsed)
               } catch {
                 // leave body as-is
@@ -417,8 +396,6 @@ const plugin: Plugin = async ({ client }) => {
 
             // Rename tools to CC canonical casing (pi-mono approach)
             body = transformBody(body) ?? body
-
-            // (debug logging removed)
 
             const response = await fetchWithRetry(url, {
               method: init?.method ?? "POST",
