@@ -235,6 +235,13 @@ function scrubText(text: string): string {
     .replace(/\bopencode\b/gi, "")
 }
 
+function rebuildSystemText(text: string): string {
+  const hashIdx = text.indexOf("\n# ")
+  if (hashIdx === -1) return scrubText(text)
+  const tail = scrubText(text.slice(hashIdx + 1))
+  return SYSTEM_IDENTITY + "\n" + tail
+}
+
 // --- Plugin ---
 const plugin: Plugin = async ({ client }) => {
   let _getAuth: (() => Promise<any>) | null = null
@@ -353,25 +360,33 @@ const plugin: Plugin = async ({ client }) => {
             const url = input instanceof Request ? input.url : input.toString()
             // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: remove OpenCode system entries, keep other plugins'.
-            // Anthropic fingerprints the system prompt and routes non-Claude-Code
-            // prompts to extra usage billing. We remove OpenCode's entries and
-            // prepend the Claude Code identity. Other plugins' entries are preserved.
+            // Transform body: rebuild system prompt — strip OpenCode identity
+            // header (up to first # heading), replace with CC identity, scrub
+            // the rest. Env info and user instructions are preserved.
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
                 if (Array.isArray(parsed.system)) {
-                  // Remove OpenCode entries, keep other plugins'
-                  const kept = parsed.system.filter((entry: any) => {
+                  parsed.system = parsed.system.map((entry: any) => {
                     const text =
                       typeof entry === "string" ? entry : entry?.text ?? ""
-                    return !containsOpencode(text)
+                    if (!containsOpencode(text)) return entry
+                    const rebuilt = rebuildSystemText(text)
+                    return { ...entry, type: "text", text: rebuilt }
                   })
-                  parsed.system = [
-                    { type: "text", text: SYSTEM_IDENTITY },
-                    ...kept,
-                  ]
+                  const hasIdentity = parsed.system.some(
+                    (s: any) =>
+                      typeof s === "string"
+                        ? s.includes(SYSTEM_IDENTITY)
+                        : s?.text?.includes(SYSTEM_IDENTITY),
+                  )
+                  if (!hasIdentity) {
+                    parsed.system.unshift({
+                      type: "text",
+                      text: SYSTEM_IDENTITY,
+                    })
+                  }
                 } else {
                   parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
                 }
