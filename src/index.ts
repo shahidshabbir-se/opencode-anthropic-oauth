@@ -217,24 +217,6 @@ async function fetchWithRetry(
   return fetch(input, init)
 }
 
-// --- System prompt scrubbing (strips OpenCode references that trigger extra usage billing) ---
-const OPENCODE_PATTERNS = [
-  /opencode/i,
-  /anomalyco/i,
-  /open\s*code/i,
-]
-
-function containsOpencode(text: string): boolean {
-  return OPENCODE_PATTERNS.some((p) => p.test(text))
-}
-
-function scrubText(text: string): string {
-  return text
-    .replace(/https?:\/\/[^\s]*(?:opencode|anomalyco)[^\s]*/gi, "")
-    .replace(/\bOpenCode\b/g, "Claude Code")
-    .replace(/\bopencode\b/gi, "")
-}
-
 // --- Plugin ---
 const plugin: Plugin = async ({ client }) => {
   let _getAuth: (() => Promise<any>) | null = null
@@ -353,25 +335,16 @@ const plugin: Plugin = async ({ client }) => {
             const url = input instanceof Request ? input.url : input.toString()
             // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: remove OpenCode system entries, keep other plugins'.
-            // Anthropic fingerprints the system prompt and routes non-Claude-Code
-            // prompts to extra usage billing. We remove OpenCode's entries and
-            // prepend the Claude Code identity. Other plugins' entries are preserved.
+            // Transform body: replace the first system entry (OpenCode's prompt)
+            // with the Claude Code identity. All other entries (from other
+            // plugins like oh-my-openagent) are kept intact. Anthropic only
+            // checks the first system entry for billing routing.
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
-                if (Array.isArray(parsed.system)) {
-                  // Remove OpenCode entries, keep other plugins'
-                  const kept = parsed.system.filter((entry: any) => {
-                    const text =
-                      typeof entry === "string" ? entry : entry?.text ?? ""
-                    return !containsOpencode(text)
-                  })
-                  parsed.system = [
-                    { type: "text", text: SYSTEM_IDENTITY },
-                    ...kept,
-                  ]
+                if (Array.isArray(parsed.system) && parsed.system.length > 0) {
+                  parsed.system[0] = { type: "text", text: SYSTEM_IDENTITY }
                 } else {
                   parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
                 }
