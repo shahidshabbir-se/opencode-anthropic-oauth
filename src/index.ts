@@ -263,33 +263,6 @@ const plugin: Plugin = async ({ client }) => {
   setInterval(() => proactiveRefresh(), REFRESH_INTERVAL)
 
   return {
-    "experimental.chat.system.transform": async (input: any, output: any) => {
-      if (input.model?.providerID !== "anthropic") return
-
-      // Remove system entries that contain opencode references
-      for (let i = output.system.length - 1; i >= 0; i--) {
-        if (containsOpencode(output.system[i])) {
-          output.system[i] = scrubText(output.system[i])
-        }
-      }
-
-      // Ensure Claude Code identity is present
-      const hasIdentity = output.system.some(
-        (s: string) => s.includes(SYSTEM_IDENTITY),
-      )
-      if (!hasIdentity) {
-        output.system.unshift(SYSTEM_IDENTITY)
-      }
-    },
-    "experimental.chat.messages.transform": async (_input: any, output: any) => {
-      for (const msg of output.messages) {
-        for (const part of msg.parts) {
-          if (part.type === "text" && containsOpencode(part.text)) {
-            part.text = scrubText(part.text)
-          }
-        }
-      }
-    },
     auth: {
       provider: "anthropic",
       async loader(getAuth, provider) {
@@ -380,14 +353,28 @@ const plugin: Plugin = async ({ client }) => {
             const url = input instanceof Request ? input.url : input.toString()
             // No ?beta=true (pi-mono doesn't add it)
 
-            // Transform body: replace system prompt with Claude Code identity only.
-            // Anthropic fingerprints the system prompt content (not just keywords)
-            // and routes non-Claude-Code prompts to extra usage billing.
+            // Transform body: remove OpenCode system entries, keep other plugins'.
+            // Anthropic fingerprints the system prompt and routes non-Claude-Code
+            // prompts to extra usage billing. We remove OpenCode's entries and
+            // prepend the Claude Code identity. Other plugins' entries are preserved.
             let body = init?.body
             if (typeof body === "string" && url.includes("/v1/messages")) {
               try {
                 const parsed = JSON.parse(body)
-                parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
+                if (Array.isArray(parsed.system)) {
+                  // Remove OpenCode entries, keep other plugins'
+                  const kept = parsed.system.filter((entry: any) => {
+                    const text =
+                      typeof entry === "string" ? entry : entry?.text ?? ""
+                    return !containsOpencode(text)
+                  })
+                  parsed.system = [
+                    { type: "text", text: SYSTEM_IDENTITY },
+                    ...kept,
+                  ]
+                } else {
+                  parsed.system = [{ type: "text", text: SYSTEM_IDENTITY }]
+                }
                 body = JSON.stringify(parsed)
               } catch {
                 // leave body as-is
