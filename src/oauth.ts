@@ -15,7 +15,7 @@ const SCOPES =
   process.env.ANTHROPIC_SCOPES ||
   "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 
-const CLI_VERSION = process.env.ANTHROPIC_CLI_VERSION || "2.1.81"
+const CLI_VERSION = process.env.ANTHROPIC_CLI_VERSION || "2.1.280"
 const USER_AGENT =
   process.env.ANTHROPIC_USER_AGENT ||
   `claude-cli/${CLI_VERSION} (external, cli)`
