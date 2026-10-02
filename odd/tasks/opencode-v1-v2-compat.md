@@ -67,7 +67,7 @@ T2 origin-policy blocker resolved by explicit user direction: preserve the exist
 
 T2 exploration/checks: official V2 guides and tagged 2.0.22 declarations/source inspected. Host integration resolution owns OAuth refresh/persistence. Worker ran `npm run build`, `npm test` (20/20), `git diff --check`, and `npm pack --dry-run --json --ignore-scripts` successfully against the unchanged baseline. No T2 RED/GREEN or source changes; no real credentials/login, installation, or native lifecycle operations. V1 CLI preference untouched. Runtime and installed-package migration checks remain pending.
 
-Next: implement T2 against OpenCode 2.0.22 while preserving V1 >= 1.18.29 and existing endpoint behavior. Reconcile the exact committed T1 native preflight independently; never claim an acknowledgement without its envelope.
+T2 implementation is complete; the evidence below supersedes the earlier implementation next steps. No native acknowledgement exists for either slice.
 
 ## T2 implementation and T3 verification evidence
 
@@ -85,6 +85,7 @@ Next: implement T2 against OpenCode 2.0.22 while preserving V1 >= 1.18.29 and ex
 - Rollback T2: revert dual adapter/shared transport, associated package dependencies, tests and install docs together to restore the T1 baseline; do not independently drop only the V2 helper while keeping its entrypoint.
 - Pending (not passed): actual V1/V2 host activation/reload, native account refresh/persistence/retry and request identity end-to-end, real login and Anthropic service compatibility. These require isolated host validation and separately authorized real-account testing.
 - Native review is not approved: preflight requests an external untracked-selection contract unavailable to the current transport. Retain the exact pending evidence; do not invent a selection schema, approval or acknowledgement, and do not disable RDD automatically.
-- T2/T3 work-unit commit: pending final staged whitespace check and commit; record exact identity afterward.
+- Final staged `git diff --cached --check` exited 0. T2/T3 work-unit commit: `3c748b8c62b9e89b32976ed22cd00ebb3ffe5a0e`, 5,090 additions / 481 deletions including generated lock and task document. Slice 2 boundary is this commit; base is T1 `807e1a6`.
+- T2 native assessment: high/unassessable due to auxiliary untracked registry files, review due. Committed-slice preflight returned target `sha256:4aafb93bf546fd99482cb6e792bbd8d7dac3d2aff8d6ea76aadccc126fff2a40`, base tree `7301d99649b8a63b861bc0cb9af230809ed1c8e7`, candidate tree `c1fdcb978dd5edf3f4cc9d1debfcf6bcb70ab35a`. It requests `external.select_intended_untracked` using schema `gentle-ai.review-intended-untracked-selection/v1` for the two `.atl` files. That input mechanism is unavailable; no START, consent, review result or acknowledgement occurred. Do not silently omit this pending check.
 
-Next action: save the verified work unit, then report the implemented/offline-verified compatibility and pending native/live-host checks without claiming end-to-end success.
+Next action: isolated V1/V2 host smoke testing and, only with separate authorization, real Anthropic login/inference. Native review remains pending until its required collection input is available. No push, PR or merge performed or authorized.
