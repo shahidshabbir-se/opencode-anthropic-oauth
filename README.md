@@ -74,6 +74,42 @@ Example:
 export ANTHROPIC_CLI_VERSION=2.2.0
 ```
 
+## Development: offline regression tests
+
+Install the locked dependencies from the public npm registry, then run the suite:
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org/
+npm test
+```
+
+`npm test` builds TypeScript and runs `node --test tests/*.test.mjs` against
+`dist`. The harness was verified with Node 26.9.0 and npm 11.19.1; no additional
+test dependencies or experimental Node flags are required. `npm run build`
+checks compilation independently.
+
+### Isolation and scope
+
+Before importing the V1 runtime, `tests/helpers/offline.mjs` replaces `fetch`,
+the home-directory lookup, credential-file existence/read operations, the clock,
+and timers. Credentials are synthetic in-memory fixtures at a fake home path;
+the tests never read actual Claude credentials. Unexpected fetches fail instead
+of reaching the network. Intervals are captured without scheduling them, retry
+delays run virtually, and mocks/environment overrides are restored after each
+test. Test files run in isolated Node workers; keep tests sequential within a
+file because the fixture replaces process-wide boundaries.
+
+Coverage characterizes OAuth PKCE/exchange/refresh, the V1 loader and callbacks,
+valid/expired synthetic tokens, header and prompt-cache preservation, API-key
+passthrough, tool mapping, split SSE chunks, and retry/error handling. These are
+baseline characterization tests, not migration RED/GREEN evidence or proof of
+Anthropic service compatibility.
+
+V2 loading, installed-package host smoke tests, stream cancellation propagation,
+and Request-only body/method/signal handling remain outside this baseline.
+Synthetic CLI tests do not endorse ambient credential precedence; account
+selection and custom endpoint policy require a separate decision before migration.
+
 ## Disclaimer
 
 This plugin uses Anthropic's public OAuth client ID to authenticate. Anthropic's Terms of Service (February 2026) state that Claude Pro/Max subscription tokens should only be used with official Anthropic clients. This plugin exists as a community workaround and may stop working if Anthropic changes their OAuth infrastructure. Use at your own discretion.
