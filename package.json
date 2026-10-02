@@ -15,10 +15,20 @@
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "*"
+    "@opencode-ai/plugin": "*",
+    "@opencode/plugin": "2.0.22"
+  },
+  "peerDependenciesMeta": {
+    "@opencode-ai/plugin": {
+      "optional": true
+    },
+    "@opencode/plugin": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@opencode-ai/plugin": "latest",
+    "@opencode/plugin": "2.0.22",
     "@types/node": "^22.0.0",
     "typescript": "^5.0.0"
   },

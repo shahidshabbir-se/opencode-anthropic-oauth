@@ -8,11 +8,19 @@ Lets you authenticate with your Claude Pro/Max subscription directly in OpenCode
 
 ## Installation
 
-```bash
-npm install -g opencode-anthropic-oauth
+The dual-host adapter targets **OpenCode V1 >= 1.18.29** and **V2 2.0.22**.
+Older V1 releases cannot load the object entrypoint. V2 declarations are pinned
+to `@opencode/plugin@2.0.22`; other V2 releases have not been verified.
+
+For V2, add the package to `opencode.json` using the plural `plugins` key:
+
+```json
+{
+  "plugins": ["opencode-anthropic-oauth"]
+}
 ```
 
-Then add to your `opencode.json`:
+For V1, use the singular `plugin` key:
 
 ```json
 {
@@ -20,13 +28,18 @@ Then add to your `opencode.json`:
 }
 ```
 
+OpenCode installs configured package plugins; a global npm installation is not
+required. Before this adapter is published, build the checkout with `npm run
+build` and replace the package name in the config with its absolute directory
+path. Do not expect an older published artifact to contain these changes.
+
 ## Usage
 
-1. Run `/connect` in OpenCode (or `oc auth login` from CLI)
+1. Run `/connect` in OpenCode
 2. Select **Anthropic** > **Claude Pro/Max**
 3. Open the link in your browser and authorize
 4. Paste the code back into OpenCode
-5. Done — all Anthropic models are now available
+5. Select an Anthropic model with `/models`
 
 ## How it works
 
@@ -36,6 +49,31 @@ Then add to your `opencode.json`:
 - **Auto-refreshes tokens** when they expire — no manual re-auth needed
 - Sets the required API headers on Anthropic requests
 - **Preserves prompt caching** for efficient token usage
+
+### Host and credential behavior
+
+| Host | Credential selection and lifetime |
+|---|---|
+| V1 | Retains the existing Claude CLI credential preference, then plugin OAuth fallback. Its proactive refresh timer stops on plugin disposal. |
+| V2 | Uses the active native Anthropic integration account. OpenCode resolves, refreshes, and persists that account's OAuth tokens; the adapter does not read Claude CLI credential files or copy V1 credentials. Native transport and retry policy stay host-owned. |
+
+The V2 adapter adds **Claude Pro/Max** as an integration OAuth method without
+replacing API-key methods. Anthropic-scoped HTTP hooks apply only when the
+outgoing bearer matches the currently resolved OAuth account and no API key is
+present. API-key requests, disconnected accounts, and non-SSE/error responses
+pass through. Model pricing is zeroed only while an OAuth account is active;
+account events reload that policy. Response rewriting follows the dispatched
+request, not whichever account is selected when the response arrives.
+
+Both adapters share header, system-prompt, tool-casing and streaming utilities.
+Cache metadata is preserved. V2 preserves Request-only bodies/methods/signals,
+and cancels rewritten response readers on request cancellation or plugin unload.
+The V1 CLI token cache is owned by its plugin instance rather than shared across
+all instances in the module.
+
+**Custom endpoint policy is unchanged:** configured Anthropic endpoints can
+receive OAuth bearer credentials. There is no origin allowlist or new opt-in.
+Only configure endpoints you trust; origin hardening has been explicitly deferred.
 
 ## Changelog
 
@@ -90,7 +128,7 @@ checks compilation independently.
 
 ### Isolation and scope
 
-Before importing the V1 runtime, `tests/helpers/offline.mjs` replaces `fetch`,
+Before importing either runtime, `tests/helpers/offline.mjs` replaces `fetch`,
 the home-directory lookup, credential-file existence/read operations, the clock,
 and timers. Credentials are synthetic in-memory fixtures at a fake home path;
 the tests never read actual Claude credentials. Unexpected fetches fail instead
@@ -99,16 +137,22 @@ delays run virtually, and mocks/environment overrides are restored after each
 test. Test files run in isolated Node workers; keep tests sequential within a
 file because the fixture replaces process-wide boundaries.
 
-Coverage characterizes OAuth PKCE/exchange/refresh, the V1 loader and callbacks,
-valid/expired synthetic tokens, header and prompt-cache preservation, API-key
-passthrough, tool mapping, split SSE chunks, and retry/error handling. These are
-baseline characterization tests, not migration RED/GREEN evidence or proof of
-Anthropic service compatibility.
+Coverage includes OAuth exchange/refresh, V1 characterization, the dual default
+entrypoint, V2 method/hook registration, selected-account changes, OAuth-only
+pricing, API-key passthrough, cache metadata, Request-only bodies, split UTF-8/SSE,
+stream cancellation, and cleanup. A package test runs `npm pack --ignore-scripts`
+with isolated empty npm configs, extracts the tarball into a disposable consumer,
+and resolves/imports its default entrypoint without either host SDK installed.
+That test requires npm and `tar` on PATH. Host imports are type-only at runtime;
+both SDK peers are optional so one host does not require the other SDK.
 
-V2 loading, installed-package host smoke tests, stream cancellation propagation,
-and Request-only body/method/signal handling remain outside this baseline.
-Synthetic CLI tests do not endorse ambient credential precedence; account
-selection and custom endpoint policy require a separate decision before migration.
+Compilation uses exact V2 2.0.22 declarations. Offline tests were run on Node
+26.9.0; no additional Node-version range has been exercised. The V2 host must
+provide standard Fetch APIs and `AbortSignal.any` for combined cancellation.
+
+**Still pending:** real V1/V2 host loading/reloading, native account refresh and
+retry end-to-end smoke tests, real login, and Anthropic service compatibility.
+Mocked hooks, packed-package import, and compilation do not prove those behaviors.
 
 ## Disclaimer
 

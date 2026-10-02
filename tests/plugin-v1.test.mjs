@@ -217,3 +217,12 @@ test("V1 authorization callback maps synthetic exchange success and failure", as
   assert.deepEqual(await authorization.callback("synthetic-code"), { type: "failed" })
   assert.equal(errors.length, 1)
 })
+
+test("V1 dispose stops its proactive refresh timer", async (t) => {
+  const fixture = await v1(t)
+  await fixture.load()
+  await fixture.hooks.dispose()
+  assert.deepEqual(fixture.clearedIntervals, [1])
+  await fixture.intervals[0].callback()
+  assert.deepEqual(fixture.requests, [])
+})

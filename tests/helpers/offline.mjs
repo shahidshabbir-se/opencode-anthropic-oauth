@@ -27,7 +27,7 @@ export function offline(t) {
   const originalRead = fs.readFileSync
   const originalExists = fs.existsSync
   const state = { credentials: null, credentialReads: 0, credentialChecks: 0,
-    requests: [], intervals: [], delays: [], respond: null }
+    requests: [], intervals: [], clearedIntervals: [], delays: [], respond: null }
 
   t.mock.method(os, "homedir", () => home)
   t.mock.method(fs, "existsSync", (path) => {
@@ -53,6 +53,7 @@ export function offline(t) {
     state.intervals.push({ callback, delay })
     return state.intervals.length
   })
+  t.mock.method(globalThis, "clearInterval", (timer) => state.clearedIntervals.push(timer))
   t.mock.method(globalThis, "setTimeout", (callback, delay) => {
     state.delays.push(delay)
     queueMicrotask(callback)
@@ -86,7 +87,7 @@ export async function v1(t, auth = {
     input: 3, output: 4, cache: { read: 1, write: 2 },
   } } } }
   const { default: plugin } = await state.import("index")
-  state.hooks = await plugin({ client: { auth: { set: async (value) => {
+  state.hooks = await plugin.server({ client: { auth: { set: async (value) => {
     state.saved.push(value)
     state.auth = value.body
   } } } })
@@ -95,6 +96,89 @@ export async function v1(t, auth = {
     // Drain the loader's unawaited proactive refresh before mutating auth.
     await new Promise((resolve) => setImmediate(resolve))
     return loaded
+  }
+  t.after(async () => { if (state.hooks.dispose) await state.hooks.dispose() })
+  return state
+}
+
+export async function v2(t, credential = {
+  type: "oauth", methodID: "claude-pro-max", access: "synthetic-access",
+  refresh: "synthetic-refresh", expires: NOW + 3_600_000,
+}) {
+  const state = offline(t)
+  state.credential = credential
+  state.connection = { type: "credential", id: "synthetic-account", method: credential?.type }
+  state.hook = new Map()
+  state.methods = []
+  state.modelTransforms = []
+  state.registrations = []
+  state.reloads = 0
+  state.resolved = []
+  state.events = []
+  const registration = () => {
+    const result = { disposed: false, async dispose() { this.disposed = true } }
+    state.registrations.push(result)
+    return result
+  }
+  const ctx = {
+    integration: {
+      transform: async (callback) => {
+        callback({ method: { update: (method) => state.methods.push(method) } })
+        return registration()
+      },
+      connection: {
+        active: async (id) => { assert.equal(id, "anthropic"); return state.connection },
+        resolve: async (connection) => { state.resolved.push(connection); return state.credential },
+      },
+    },
+    model: {
+      transform: async (callback) => { state.modelTransforms.push(callback); return registration() },
+      reload: async () => { state.reloads++ },
+    },
+    session: {
+      hook: async (name, callback, scope) => {
+        assert.deepEqual(scope, { providerID: "anthropic" })
+        state.hook.set(name, callback)
+        return registration()
+      },
+    },
+    event: {
+      subscribe: ({ signal }) => {
+        state.subscriptionSignal = signal
+        return {
+          async *[Symbol.asyncIterator]() {
+            while (!signal.aborted) {
+              const event = await new Promise((resolve) => {
+                state.deliver = resolve
+                signal.addEventListener("abort", () => resolve(null), { once: true })
+              })
+              if (event) yield event
+            }
+          },
+        }
+      },
+    },
+  }
+  const { default: plugin } = await state.import("index")
+  state.cleanup = await plugin.setup(ctx)
+  t.after(async () => { if (state.cleanup) await state.cleanup() })
+  state.request = async (request) => {
+    const event = { request, model: { providerID: "anthropic", id: "synthetic" }, kind: "primary" }
+    await state.hook.get("http.request")(event)
+    return event.request
+  }
+  state.response = async (request, response) => {
+    const event = { request, response, model: { providerID: "anthropic", id: "synthetic" }, kind: "primary" }
+    await state.hook.get("http.response")(event)
+    return event.response
+  }
+  state.cost = () => {
+    const model = { providerID: "anthropic", id: "synthetic", cost: [{ input: 3, output: 4, cache: { read: 1, write: 2 } }] }
+    for (const transform of state.modelTransforms) transform({
+      list: (id) => { assert.equal(id, "anthropic"); return [model] },
+      update: (_providerID, _id, callback) => callback(model),
+    })
+    return model.cost
   }
   return state
 }
