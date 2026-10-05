@@ -150,9 +150,9 @@ Compilation uses exact V2 2.0.22 declarations. Offline tests were run on Node
 26.9.0; no additional Node-version range has been exercised. The V2 host must
 provide standard Fetch APIs and `AbortSignal.any` for combined cancellation.
 
-**Still pending:** real V1/V2 host loading/reloading, native account refresh and
-retry end-to-end smoke tests, real login, and Anthropic service compatibility.
-Mocked hooks, packed-package import, and compilation do not prove those behaviors.
+Real V1/V2 host loading, login, and requests against Anthropic were checked
+manually. The offline suite does not cover those behaviors: mocked hooks,
+packed-package import, and compilation alone do not prove them.
 
 ## Disclaimer
 
