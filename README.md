@@ -34,6 +34,8 @@
 
 OpenCode plugin for Anthropic Claude Pro/Max OAuth login — no Claude Code needed.
 
+> **OpenCode V2 note:** [OpenCode 2.2.3](https://github.com/anomalyco/opencode/releases/tag/v2.2.3) added a built-in **Claude Agent** provider. That approach runs Claude Code through Anthropic's Agent SDK: install Claude Code, run `claude auth login`, then select **Claude Agent** in OpenCode's `/connect` menu. It requires Claude Code to be installed; this plugin instead authenticates directly via OAuth without installing Claude Code. Built-in support does not imply Anthropic approval, and Anthropic's terms and [Agent SDK authentication policy](https://code.claude.com/docs/en/agent-sdk/overview) still apply. This plugin is a separate community workaround, not an official Anthropic integration or a guarantee of V2 compatibility.
+
 ## What it does
 
 Lets you authenticate with your Claude Pro/Max subscription directly in OpenCode via browser OAuth. No need to install Claude Code or manage credentials files.
