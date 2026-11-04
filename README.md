@@ -32,39 +32,7 @@
 
 # opencode-anthropic-oauth
 
-> **Archived — use OpenCode V2's built-in Claude Agent provider instead.**
->
-> This plugin is no longer maintained. OpenCode **2.2.3** restored a built-in way to use a Claude subscription through Claude Code, so this standalone OAuth workaround is being retired. The source and legacy instructions below are preserved for reference only.
-
-## Why this repository is archived
-
-- **V1:** On March 19, 2026, OpenCode merged [“anthropic legal requests” (#18186)](https://github.com/anomalyco/opencode/pull/18186), removing its bundled Anthropic authentication plugin. This community plugin provided a direct Claude Pro/Max OAuth workaround.
-- **V2:** On October 30, 2026, [OpenCode 2.2.3](https://github.com/anomalyco/opencode/releases/tag/v2.2.3) introduced the built-in **Claude Agent** provider ([#58782](https://github.com/anomalyco/opencode/pull/58782)). It uses Claude Code through Anthropic's Agent SDK rather than restoring the old direct OAuth integration.
-- **Now:** Use the upstream integration instead of this unmaintained plugin. This repository will not receive further fixes or compatibility updates.
-
-## Use Claude with OpenCode V2
-
-1. Install or update to [OpenCode V2](https://opencode.ai/v2/docs/) **2.2.3 or later**.
-2. Remove `opencode-anthropic-oauth` from your OpenCode plugin configuration.
-3. Install [Claude Code](https://code.claude.com/docs/en/overview), then sign in with your Claude subscription:
-
-   ```bash
-   claude auth login
-   ```
-
-4. In OpenCode, run `/connect` and select **Claude Agent** — not the ordinary Anthropic API-key provider.
-5. Run `/models` and choose a Claude Agent model.
-
-Unlike this plugin, the built-in provider **requires Claude Code**. Follow the [upstream release instructions](https://github.com/anomalyco/opencode/releases/tag/v2.2.3) for setup.
-
-**Policy note:** Built-in OpenCode support is not a claim of Anthropic approval. Anthropic's terms and [Agent SDK authentication policy](https://code.claude.com/docs/en/agent-sdk/overview) still apply; availability may change. [Contemporary web coverage](https://cellcog.ai/blog/opencode-claude-subscription/) explains the technical change and the unresolved approval question.
-
-## Legacy plugin documentation (unmaintained)
-
-The following describes the historical V1 plugin, not the recommended V2 setup.
-
-<details>
-<summary>Show legacy installation, usage, and changelog</summary>
+OpenCode plugin for Anthropic Claude Pro/Max OAuth login — no Claude Code needed.
 
 ## What it does
 
@@ -119,7 +87,7 @@ Then add to your `opencode.json`:
 
 ## Environment variable overrides
 
-All OAuth parameters could be overridden via environment variables. These historical overrides are not maintained or guaranteed to work:
+All OAuth parameters can be overridden via environment variables. If Anthropic changes something before we publish an update, set an env var and keep working:
 
 | Variable | Description |
 |---|---|
@@ -141,8 +109,6 @@ export ANTHROPIC_CLI_VERSION=2.2.0
 ## Disclaimer
 
 This plugin uses Anthropic's public OAuth client ID to authenticate. Anthropic's Terms of Service (February 2026) state that Claude Pro/Max subscription tokens should only be used with official Anthropic clients. This plugin exists as a community workaround and may stop working if Anthropic changes their OAuth infrastructure. Use at your own discretion.
-
-</details>
 
 ## License
 
